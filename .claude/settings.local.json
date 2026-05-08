@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Name)",
+      "Bash(Head -100)",
+      "Bash(npm install *)",
+      "Bash(npm start *)",
+      "Bash(git --version)",
+      "Bash(aws --version)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)"
+    ]
+  }
+}

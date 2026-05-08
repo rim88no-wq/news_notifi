@@ -1,0 +1,30 @@
+{
+  "rules": {
+    // articles — public read, server-controlled write
+    "articles": {
+      ".read": true,
+      ".write": true,
+      "$articleId": {
+        ".validate": "newData.hasChildren(['id','title','excerpt','category','createdAt'])"
+      }
+    },
+
+    // notifications — public read (used by /api/feed), server-controlled write
+    "notifications": {
+      ".read": true,
+      ".write": true,
+      "$notificationId": {
+        ".validate": "newData.hasChildren(['id','title','body','createdAt'])"
+      }
+    },
+
+    // subscriptions — server read/write only (push endpoints are sensitive)
+    "subscriptions": {
+      ".read": true,
+      ".write": true,
+      "$subId": {
+        ".validate": "newData.hasChildren(['endpoint','keys','subscribedAt'])"
+      }
+    }
+  }
+}

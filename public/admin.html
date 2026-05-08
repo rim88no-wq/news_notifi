@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel — NewsFlash</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+
+  <!-- ═══ LOGIN SCREEN ═════════════════════════════════════════════════════ -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-brand">
+        <span aria-hidden="true">📰</span>
+        <h1>NewsFlash Admin</h1>
+      </div>
+      <p class="login-sub">Sign in to manage push notifications</p>
+
+      <div id="login-error" class="alert alert-error" style="display:none"></div>
+
+      <form id="login-form" novalidate>
+        <div class="form-group">
+          <label for="admin-password">Password</label>
+          <input type="password" id="admin-password" placeholder="Enter admin password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn-submit" id="login-btn">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN PANEL ═══════════════════════════════════════════════════════ -->
+  <div id="admin-panel" class="admin-layout" style="display:none">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span aria-hidden="true">📰</span>
+        NewsFlash
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Admin sections">
+        <a href="#" class="nav-link active" data-section="send">
+          <span aria-hidden="true">📤</span> Send Notification
+        </a>
+        <a href="#" class="nav-link" data-section="history">
+          <span aria-hidden="true">📋</span> Notification History
+        </a>
+        <a href="#" class="nav-link" data-section="stats">
+          <span aria-hidden="true">📊</span> Statistics
+        </a>
+        <a href="#" class="nav-link" data-section="news">
+          <span aria-hidden="true">📝</span> Manage News
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <a href="/" class="sidebar-ext-link">← View Website</a>
+        <button id="logout-btn" class="btn-logout">Logout</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="admin-main">
+
+      <!-- Top bar -->
+      <div class="admin-topbar">
+        <h1 id="section-heading" class="admin-page-title">Send Notification</h1>
+        <div class="topbar-chip">
+          <span aria-hidden="true">👥</span>
+          <span id="subscriber-count">—</span> subscribers
+        </div>
+      </div>
+
+      <!-- ── SEND SECTION ───────────────────────────────────────────────── -->
+      <section id="section-send" class="admin-section">
+        <div class="card">
+          <h2 class="card-title">Create New Notification</h2>
+
+          <div id="send-success" class="alert alert-success" style="display:none"></div>
+          <div id="send-error"   class="alert alert-error"   style="display:none"></div>
+
+          <form id="notification-form" novalidate>
+
+            <div class="form-group">
+              <label for="notif-title">Title <span class="req">*</span></label>
+              <input type="text" id="notif-title" placeholder="e.g. Breaking: Major earthquake hits region…"
+                     maxlength="80" required autocomplete="off" />
+              <span class="char-hint"><span id="title-count">0</span>/80</span>
+            </div>
+
+            <div class="form-group">
+              <label for="notif-body">Message <span class="req">*</span></label>
+              <textarea id="notif-body" rows="4" maxlength="200"
+                        placeholder="Write the notification body text…" required></textarea>
+              <span class="char-hint"><span id="body-count">0</span>/200</span>
+            </div>
+
+            <div class="form-group">
+              <label for="notif-url">Click URL <span class="optional">(optional)</span></label>
+              <input type="text" id="notif-url" placeholder="/ or /article-slug or https://…" value="/" />
+            </div>
+
+            <!-- Live preview -->
+            <div class="preview-block">
+              <p class="preview-label">Browser Notification Preview</p>
+              <div class="preview-bubble">
+                <div class="preview-header">
+                  <span aria-hidden="true">📰</span>
+                  <span class="preview-site">NewsFlash</span>
+                  <span class="preview-time">now</span>
+                </div>
+                <p class="preview-title" id="preview-title">Title will appear here</p>
+                <p class="preview-body"  id="preview-body">Message body will appear here…</p>
+              </div>
+            </div>
+
+            <div class="form-footer">
+              <button type="button" id="clear-form-btn" class="btn-secondary">Clear</button>
+              <button type="submit" id="send-btn" class="btn-primary">
+                <span aria-hidden="true">📤</span> Send to All Subscribers
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ── HISTORY SECTION ────────────────────────────────────────────── -->
+      <section id="section-history" class="admin-section" style="display:none">
+        <div class="card">
+          <div class="card-head-row">
+            <h2 class="card-title">Notification History</h2>
+            <button id="refresh-btn" class="btn-icon" title="Refresh" aria-label="Refresh history">🔄</button>
+          </div>
+
+          <p  id="history-loading" class="state-msg">Loading…</p>
+          <div id="history-empty"  class="empty-state"  style="display:none">
+            <span aria-hidden="true">📭</span>
+            <p>No notifications sent yet.</p>
+            <p>Head to <strong>Send Notification</strong> to create your first alert.</p>
+          </div>
+          <div id="history-list" class="history-list"></div>
+        </div>
+      </section>
+
+      <!-- ── STATS SECTION ──────────────────────────────────────────────── -->
+      <section id="section-stats" class="admin-section" style="display:none">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-icon" aria-hidden="true">👥</span>
+            <div class="stat-value" id="stat-subs">—</div>
+            <div class="stat-label">Total Subscribers</div>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon" aria-hidden="true">📤</span>
+            <div class="stat-value" id="stat-notifs">—</div>
+            <div class="stat-label">Notifications Sent</div>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon" aria-hidden="true">✅</span>
+            <div class="stat-value" id="stat-delivered">—</div>
+            <div class="stat-label">Total Delivered</div>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon" aria-hidden="true">⏱</span>
+            <div class="stat-value stat-value--sm" id="stat-latest">—</div>
+            <div class="stat-label">Last Sent</div>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon" aria-hidden="true">📝</span>
+            <div class="stat-value" id="stat-articles">—</div>
+            <div class="stat-label">Published Articles</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── NEWS MANAGEMENT SECTION ───────────────────────────────────── -->
+      <section id="section-news" class="admin-section" style="display:none">
+
+        <!-- Article form -->
+        <div class="card">
+          <h2 class="card-title" id="article-form-title">Add New Article</h2>
+          <div id="article-success" class="alert alert-success" style="display:none"></div>
+          <div id="article-error"   class="alert alert-error"   style="display:none"></div>
+
+          <input type="hidden" id="article-edit-id" />
+
+          <form id="article-form" novalidate>
+
+            <div class="form-group">
+              <label for="art-title">Headline <span class="req">*</span></label>
+              <input type="text" id="art-title" placeholder="Breaking: …" maxlength="120" required autocomplete="off" />
+            </div>
+
+            <div class="form-group">
+              <label for="art-excerpt">Excerpt / Summary <span class="req">*</span></label>
+              <textarea id="art-excerpt" rows="2" maxlength="300" placeholder="Brief description shown in cards…" required></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="art-body">Full Article Body</label>
+              <textarea id="art-body" rows="6" placeholder="Full story content (optional)…"></textarea>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="art-category">Category <span class="req">*</span></label>
+                <select id="art-category" required>
+                  <option value="">— Select —</option>
+                  <option value="politics">🏛 Politics</option>
+                  <option value="tech">💻 Tech</option>
+                  <option value="sports">⚽ Sports</option>
+                  <option value="economy">📈 Economy</option>
+                  <option value="science">🔬 Science</option>
+                  <option value="health">🏥 Health</option>
+                  <option value="world">🌍 World</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="art-author">Author</label>
+                <input type="text" id="art-author" placeholder="Staff Reporter" value="Staff Reporter" maxlength="80" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="art-emoji">Card Emoji</label>
+                <input type="text" id="art-emoji" placeholder="📰" maxlength="4" value="📰" />
+              </div>
+              <div class="form-group">
+                <label for="art-url">Article URL / Link</label>
+                <input type="text" id="art-url" placeholder="/ or /article-slug" value="/" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="art-color">Card Background Gradient (CSS)</label>
+              <input type="text" id="art-color" placeholder="leave blank to use category default" />
+              <span class="field-hint">e.g. <code>linear-gradient(135deg,#1e3a5f,#2d6a9f)</code></span>
+            </div>
+
+            <div class="form-group form-group--check">
+              <label class="check-label">
+                <input type="checkbox" id="art-featured" />
+                <span class="check-box"></span>
+                Feature this article (shown as main headline)
+              </label>
+            </div>
+
+            <div class="form-footer">
+              <button type="button" id="article-cancel-btn" class="btn-secondary">Cancel / Clear</button>
+              <button type="submit" id="article-save-btn" class="btn-primary">
+                <span aria-hidden="true">💾</span> Save Article
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Article list -->
+        <div class="card" style="margin-top:24px">
+          <div class="card-head-row">
+            <h2 class="card-title">Published Articles</h2>
+            <button id="refresh-articles-btn" class="btn-icon" title="Refresh" aria-label="Refresh articles">🔄</button>
+          </div>
+          <p  id="articles-loading" class="state-msg">Loading…</p>
+          <div id="articles-empty" class="empty-state" style="display:none">
+            <span aria-hidden="true">📝</span>
+            <p>No articles yet.</p>
+            <p>Use the form above to publish your first story.</p>
+          </div>
+          <div id="article-list" class="article-list"></div>
+        </div>
+
+      </section>
+
+    </main>
+  </div><!-- /admin-panel -->
+
+  <script src="/admin.js"></script>
+</body>
+</html>

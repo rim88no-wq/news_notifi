@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // articles — public read, no client writes (server-only via Admin/client SDK)
+    match /articles/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // notifications — public read, no client writes
+    match /notifications/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // subscriptions — write-only from client (subscribe/unsubscribe), no reads
+    match /subscriptions/{id} {
+      allow read: if false;
+      allow write: if true;
+    }
+  }
+}
