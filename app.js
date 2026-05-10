@@ -188,7 +188,7 @@ function setUI(state) {
 function showPopup() { document.getElementById('notif-popup')?.classList.add('visible'); }
 function hidePopup() { document.getElementById('notif-popup')?.classList.remove('visible'); }
 
-// ─── Subscribe — writes subscription directly to Firestore ───────────────────
+// ─── Subscribe — saves via Railway (Admin SDK bypasses Firestore rules) ───────
 async function subscribe() {
   let browserSub = null;
   try {
@@ -197,11 +197,14 @@ async function subscribe() {
       userVisibleOnly:      true,
       applicationServerKey: urlBase64ToUint8Array(window.VAPID_PUBLIC_KEY),
     });
-    // Convert PushSubscription to plain object, then write to Firestore
-    const subJson   = JSON.parse(JSON.stringify(browserSub));
-    const existing  = await db.collection('subscriptions').where('endpoint', '==', subJson.endpoint).get();
-    if (existing.empty) {
-      await db.collection('subscriptions').add({ ...subJson, subscribedAt: new Date().toISOString() });
+    const res = await fetch(window.API_BASE + '/api/subscribe', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(browserSub),
+    });
+    if (!res.ok) {
+      await browserSub.unsubscribe();
+      throw new Error('Server failed to save subscription');
     }
     subscribed = true;
     setUI('subscribed');
@@ -212,19 +215,73 @@ async function subscribe() {
   }
 }
 
-// ─── Unsubscribe — deletes from Firestore ────────────────────────────────────
+// ─── Unsubscribe — removes via Railway ───────────────────────────────────────
 async function unsubscribe() {
   try {
     const sub = await swReg.pushManager.getSubscription();
     if (sub) {
-      const snapshot = await db.collection('subscriptions').where('endpoint', '==', sub.endpoint).get();
-      await Promise.all(snapshot.docs.map((d) => d.ref.delete()));
+      await fetch(window.API_BASE + '/api/unsubscribe', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ endpoint: sub.endpoint }),
+      });
       await sub.unsubscribe();
     }
     subscribed = false;
     setUI('unsubscribed');
   } catch (err) {
     console.error('[Push] unsubscribe failed:', err);
+  }
+}
+
+// ─── Re-register existing subscription with backend on every page load ────────
+// Handles the case where user subscribed but the endpoint wasn't saved
+// (e.g. CORS was broken at subscribe time, or backend was redeployed)
+async function ensureSubscriptionSaved() {
+  try {
+    const sub = await swReg.pushManager.getSubscription();
+    if (!sub) return;
+    // Silently re-register — server deduplicates by endpoint
+    await fetch(window.API_BASE + '/api/subscribe', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(sub),
+    });
+  } catch { /* silent — best-effort */ }
+}
+
+// ─── Show missed notifications since last visit ───────────────────────────────
+async function checkMissedNotifications() {
+  try {
+    const lastVisitStr = localStorage.getItem('nf-last-visit');
+    const now          = Date.now();
+    localStorage.setItem('nf-last-visit', String(now));
+
+    if (!lastVisitStr) return; // first visit — nothing missed
+
+    const lastVisitIso = new Date(parseInt(lastVisitStr)).toISOString();
+
+    const snapshot = await db.collection('notifications')
+      .where('createdAt', '>', lastVisitIso)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const missed = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (missed.length === 0) return;
+
+    // Show most recent as a toast, badge for all
+    missed.forEach((n, i) => {
+      seenNotifIds.add(n.id);
+      incrementBadge();
+      if (i === 0) showToast(n.title, n.body || '', n.url || '/');
+    });
+
+    if (missed.length > 1) {
+      // Extra toast summarising the rest
+      showToast(`${missed.length - 1} more notification${missed.length > 2 ? 's' : ''}`, 'Open the bell to see all', '/');
+    }
+  } catch (err) {
+    console.error('[Missed notifications]', err);
   }
 }
 
@@ -257,6 +314,10 @@ async function init() {
     if (existing) {
       subscribed = true;
       setUI('subscribed');
+      // Silently ensure endpoint is on the server (covers CORS failures at subscribe time)
+      ensureSubscriptionSaved();
+      // Show any notifications the user missed while the browser was closed
+      checkMissedNotifications();
     } else {
       setUI('unsubscribed');
       if (permission === 'default' && !localStorage.getItem('popup-dismissed')) {
