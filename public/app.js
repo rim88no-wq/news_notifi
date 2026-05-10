@@ -337,7 +337,7 @@ async function init() {
   }
 
   try {
-    swReg = await navigator.serviceWorker.register('/sw.js');
+    swReg = await navigator.serviceWorker.register('./sw.js');
     setupSWMessageListener(); // catch push events when tab is in foreground
 
     const permission = Notification.permission;

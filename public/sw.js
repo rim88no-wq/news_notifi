@@ -16,8 +16,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body || '',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: self.registration.scope + 'icon-192.png',
+    badge: self.registration.scope + 'icon-192.png',
     data: { url: data.url || '/', id: data.id },
     vibrate: [200, 100, 200],
     requireInteraction: false,
