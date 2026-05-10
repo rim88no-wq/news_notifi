@@ -9,6 +9,8 @@
 
 'use strict';
 
+const API_BASE = window.API_BASE || '';
+
 let swReg        = null;
 let subscribed   = false;
 let sseSource    = null;
@@ -32,7 +34,7 @@ function urlBase64ToUint8Array(base64) {
 }
 
 async function getVapidPublicKey() {
-  const res  = await fetch('/api/vapid-public-key');
+  const res  = await fetch(API_BASE + '/api/vapid-public-key');
   const data = await res.json();
   return data.publicKey;
 }
@@ -121,7 +123,7 @@ async function openDrawer() {
   list.innerHTML = '<p class="drawer-state">Loading…</p>';
 
   try {
-    const res    = await fetch('/api/feed');
+    const res    = await fetch(API_BASE + '/api/feed');
     const notifs = await res.json();
 
     if (notifs.length === 0) {
@@ -164,7 +166,7 @@ function onNewNotification(data) {
 // ─── SSE — real-time in-page updates from server ─────────────────────────────
 function connectSSE() {
   if (sseSource || !window.EventSource) return;
-  sseSource = new EventSource('/api/notifications/stream');
+  sseSource = new EventSource(API_BASE + '/api/notifications/stream');
 
   sseSource.addEventListener('message', (event) => {
     try {
@@ -262,7 +264,7 @@ async function subscribe() {
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     });
 
-    const res = await fetch('/api/subscribe', {
+    const res = await fetch(API_BASE + '/api/subscribe', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(browserSub),
@@ -289,7 +291,7 @@ async function unsubscribe() {
   try {
     const sub = await swReg.pushManager.getSubscription();
     if (sub) {
-      await fetch('/api/unsubscribe', {
+      await fetch(API_BASE + '/api/unsubscribe', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ endpoint: sub.endpoint }),
@@ -431,7 +433,7 @@ const CATEGORY_COLORS = {
 
 async function loadArticles(category = '') {
   try {
-    const url      = category ? `/api/articles?category=${encodeURIComponent(category)}` : '/api/articles';
+    const url      = category ? `${API_BASE}/api/articles?category=${encodeURIComponent(category)}` : API_BASE + '/api/articles';
     const res      = await fetch(url);
     const articles = await res.json();
 

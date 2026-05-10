@@ -4,6 +4,8 @@
 
 'use strict';
 
+const API_BASE = window.API_BASE || '';
+
 let token = null; // Bearer token (= admin password) stored in sessionStorage
 
 // ─── Auth headers ─────────────────────────────────────────────────────────────
@@ -34,7 +36,7 @@ async function handleLogin(password) {
   btn.textContent = 'Signing in…';
 
   try {
-    const res  = await fetch('/api/admin/login', {
+    const res  = await fetch(API_BASE + '/api/admin/login', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ password }),
@@ -61,7 +63,7 @@ async function handleLogin(password) {
 // ─── Load subscriber count ────────────────────────────────────────────────────
 async function loadSubscriberCount() {
   try {
-    const res  = await fetch('/api/admin/subscribers', { headers: authHeaders() });
+    const res  = await fetch(API_BASE + '/api/admin/subscribers', { headers: authHeaders() });
     if (!res.ok) return;
     const data = await res.json();
     document.getElementById('subscriber-count').textContent = data.count;
@@ -87,7 +89,7 @@ async function handleSend(e) {
   sendBtn.innerHTML        = '⏳ Sending…';
 
   try {
-    const res  = await fetch('/api/notifications', {
+    const res  = await fetch(API_BASE + '/api/notifications', {
       method:  'POST',
       headers: authHeaders(),
       body:    JSON.stringify({ title, body, url }),
@@ -129,7 +131,7 @@ async function loadHistory() {
   listEl.innerHTML        = '';
 
   try {
-    const res  = await fetch('/api/notifications', { headers: authHeaders() });
+    const res  = await fetch(API_BASE + '/api/notifications', { headers: authHeaders() });
     if (!res.ok) {
       loadingEl.textContent = 'Failed to load history.';
       return;
@@ -197,7 +199,7 @@ async function deleteNotification(id) {
   if (!confirm('Remove this notification from history?')) return;
 
   try {
-    const res = await fetch(`/api/notifications/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${API_BASE}/api/notifications/${encodeURIComponent(id)}`, {
       method:  'DELETE',
       headers: authHeaders(),
     });
@@ -307,7 +309,7 @@ async function loadAdminArticles() {
   listEl.innerHTML = '';
 
   try {
-    const res      = await fetch('/api/articles', { headers: authHeaders() });
+    const res      = await fetch(API_BASE + '/api/articles', { headers: authHeaders() });
     const articles = await res.json();
 
     if (loadingEl) loadingEl.style.display = 'none';
@@ -395,7 +397,7 @@ async function handleArticleSave(e) {
 
   try {
     const method = editId ? 'PUT' : 'POST';
-    const url    = editId ? `/api/articles/${encodeURIComponent(editId)}` : '/api/articles';
+    const url    = editId ? `${API_BASE}/api/articles/${encodeURIComponent(editId)}` : API_BASE + '/api/articles';
 
     const res = await fetch(url, {
       method,
@@ -422,7 +424,7 @@ async function handleArticleSave(e) {
 }
 
 function editArticle(id) {
-  fetch('/api/articles', { headers: authHeaders() })
+  fetch(API_BASE + '/api/articles', { headers: authHeaders() })
     .then((r) => r.json())
     .then((articles) => {
       const a = articles.find((x) => x.id === id);
@@ -454,7 +456,7 @@ function editArticle(id) {
 async function deleteArticle(id) {
   if (!confirm('Delete this article? This cannot be undone.')) return;
   try {
-    const res = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(id)}`, {
       method:  'DELETE',
       headers: authHeaders(),
     });
@@ -508,7 +510,7 @@ function clearArticleForm() {
 
 async function loadArticleCount() {
   try {
-    const res = await fetch('/api/articles');
+    const res = await fetch(API_BASE + '/api/articles');
     const articles = await res.json();
     const el = document.getElementById('stat-articles');
     if (el) el.textContent = articles.length;
