@@ -1,31 +1,17 @@
-/* ── Push Notification + In-Page Toast client logic ─────────────────────────
-   Handles:
-   • Service Worker registration
-   • Permission popup / subscribe / unsubscribe
-   • SSE stream for real-time in-page notification toasts
-   • SW→page postMessage bridge (OS notification fires even when tab focused)
-   • Notification bell badge + drawer
-   ─────────────────────────────────────────────────────────────────────────── */
-
 'use strict';
 
-const API_BASE = window.API_BASE || '';
+let swReg       = null;
+let subscribed  = false;
+let unreadCount = 0;
+const SEEN_KEY      = 'nf-last-seen-id';
+const seenNotifIds  = new Set();
 
-let swReg        = null;
-let subscribed   = false;
-let sseSource    = null;
-let unreadCount  = 0;
-let sseRetryDelay = 5000;
-const SEEN_KEY   = 'nf-last-seen-id';
-const seenNotifIds = new Set(); // deduplicates SW + SSE delivering the same push
-
-// ─── Feature detection ────────────────────────────────────────────────────────
 const pushSupported =
   'serviceWorker' in navigator &&
-  'PushManager'   in window     &&
+  'PushManager'   in window    &&
   'Notification'  in window;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function urlBase64ToUint8Array(base64) {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
   const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -33,13 +19,6 @@ function urlBase64ToUint8Array(base64) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
-async function getVapidPublicKey() {
-  const res  = await fetch(API_BASE + '/api/vapid-public-key');
-  const data = await res.json();
-  return data.publicKey;
-}
-
-// ─── HTML escape ──────────────────────────────────────────────────────────────
 function esc(str) {
   const d = document.createElement('div');
   d.appendChild(document.createTextNode(String(str)));
@@ -54,11 +33,14 @@ function relativeTime(iso) {
   return `${Math.floor(diff / 86400)} days ago`;
 }
 
-// ─── In-page toast ────────────────────────────────────────────────────────────
+function formatDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
 function showToast(title, body, url) {
   const container = document.getElementById('toast-container');
   if (!container) return;
-
   const toast = document.createElement('div');
   toast.className = 'notif-toast';
   toast.innerHTML = `
@@ -69,17 +51,13 @@ function showToast(title, body, url) {
     </div>
     <button class="toast-close" aria-label="Close notification">✕</button>
   `;
-
   toast.addEventListener('click', (e) => {
-    if (!e.target.classList.contains('toast-close')) {
-      window.location.href = url || '/';
-    }
+    if (!e.target.classList.contains('toast-close')) window.location.href = url || '/';
   });
   toast.querySelector('.toast-close').addEventListener('click', (e) => {
     e.stopPropagation();
     dismissToast(toast);
   });
-
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('toast-visible'));
   setTimeout(() => dismissToast(toast), 7000);
@@ -96,10 +74,7 @@ function dismissToast(toast) {
 function incrementBadge() {
   unreadCount++;
   const badge = document.getElementById('bell-badge');
-  if (badge) {
-    badge.textContent    = unreadCount > 9 ? '9+' : unreadCount;
-    badge.style.display  = '';
-  }
+  if (badge) { badge.textContent = unreadCount > 9 ? '9+' : unreadCount; badge.style.display = ''; }
 }
 function clearBadge() {
   unreadCount = 0;
@@ -107,30 +82,23 @@ function clearBadge() {
   if (badge) badge.style.display = 'none';
 }
 
-// ─── Notification drawer ──────────────────────────────────────────────────────
+// ─── Notification drawer — reads Firestore directly ──────────────────────────
 async function openDrawer() {
   clearBadge();
   const drawer = document.getElementById('notif-drawer');
   const list   = document.getElementById('drawer-list');
   if (!drawer || !list) return;
-
   if (drawer.classList.contains('drawer-open')) {
     drawer.classList.remove('drawer-open');
     return;
   }
-
   drawer.classList.add('drawer-open');
   list.innerHTML = '<p class="drawer-state">Loading…</p>';
-
   try {
-    const res    = await fetch(API_BASE + '/api/feed');
-    const notifs = await res.json();
-
-    if (notifs.length === 0) {
-      list.innerHTML = '<p class="drawer-state">No notifications yet.</p>';
-      return;
-    }
-
+    const snapshot = await db.collection('notifications')
+      .orderBy('createdAt', 'desc').limit(20).get();
+    const notifs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (notifs.length === 0) { list.innerHTML = '<p class="drawer-state">No notifications yet.</p>'; return; }
     list.innerHTML = '';
     notifs.forEach((n) => {
       const item = document.createElement('a');
@@ -148,9 +116,7 @@ async function openDrawer() {
   }
 }
 
-// ─── Handle incoming notification ────────────────────────────────────────────
-// A single push can arrive via both SSE (open tab) and SW postMessage (focused
-// tab). Deduplicate by ID so the user never sees the same toast/badge twice.
+// ─── Handle incoming notification ─────────────────────────────────────────────
 function onNewNotification(data) {
   if (!data || !data.title) return;
   if (data.id) {
@@ -163,139 +129,96 @@ function onNewNotification(data) {
   if (data.id) localStorage.setItem(SEEN_KEY, data.id);
 }
 
-// ─── SSE — real-time in-page updates from server ─────────────────────────────
-function connectSSE() {
-  if (sseSource || !window.EventSource) return;
-  sseSource = new EventSource(API_BASE + '/api/notifications/stream');
-
-  sseSource.addEventListener('message', (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'notification' && msg.notification) {
-        onNewNotification(msg.notification);
+// ─── Real-time updates via Firestore onSnapshot (replaces SSE) ────────────────
+function connectRealtime() {
+  let firstLoad = true;
+  const seenOnLoad = new Set();
+  db.collection('notifications')
+    .orderBy('createdAt', 'desc').limit(1)
+    .onSnapshot((snapshot) => {
+      if (firstLoad) {
+        snapshot.docs.forEach((d) => seenOnLoad.add(d.id));
+        firstLoad = false;
+        return;
       }
-    } catch { /* ignore */ }
-  });
-
-  sseSource.addEventListener('open', () => {
-    sseRetryDelay = 5000; // reset backoff on successful connection
-  });
-
-  sseSource.onerror = () => {
-    sseSource.close();
-    sseSource = null;
-    setTimeout(connectSSE, sseRetryDelay);
-    sseRetryDelay = Math.min(sseRetryDelay * 2, 60000); // exponential backoff, cap at 60s
-  };
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added' && !seenOnLoad.has(change.doc.id)) {
+          onNewNotification({ id: change.doc.id, ...change.doc.data() });
+        }
+      });
+    });
 }
 
-// ─── SW→Page message bridge ──────────────────────────────────────────────────
-// Chrome suppresses OS notifications when the tab is in the foreground.
-// The service worker posts a message instead, so we show an in-page toast.
+// ─── SW → Page message bridge ─────────────────────────────────────────────────
 function setupSWMessageListener() {
   navigator.serviceWorker.addEventListener('message', (event) => {
     const msg = event.data;
-    if (msg && msg.type === 'push-notification' && msg.data) {
-      onNewNotification(msg.data);
-    }
+    if (msg && msg.type === 'push-notification' && msg.data) onNewNotification(msg.data);
   });
 }
 
-// ─── UI helpers ──────────────────────────────────────────────────────────────
+// ─── UI state ─────────────────────────────────────────────────────────────────
 function setUI(state) {
-  const toggleBtn  = document.getElementById('notif-toggle-btn');
-  const label      = document.getElementById('notif-label');
-  const invite     = document.getElementById('notif-invite');
-
+  const toggleBtn = document.getElementById('notif-toggle-btn');
+  const label     = document.getElementById('notif-label');
+  const invite    = document.getElementById('notif-invite');
   if (!toggleBtn) return;
-
   switch (state) {
     case 'subscribed':
-      toggleBtn.textContent  = '🔔 Subscribed';
-      toggleBtn.className    = 'notif-btn unsubscribe';
-      toggleBtn.disabled     = false;
-      if (label)  label.textContent = 'Notifications on';
+      toggleBtn.textContent = '🔔 Subscribed'; toggleBtn.className = 'notif-btn unsubscribe'; toggleBtn.disabled = false;
+      if (label)  label.textContent    = 'Notifications on';
       if (invite) invite.style.display = 'none';
       break;
-
     case 'unsubscribed':
-      toggleBtn.textContent  = 'Enable Alerts';
-      toggleBtn.className    = 'notif-btn subscribe';
-      toggleBtn.disabled     = false;
-      if (label)  label.textContent = '';
+      toggleBtn.textContent = 'Enable Alerts'; toggleBtn.className = 'notif-btn subscribe'; toggleBtn.disabled = false;
+      if (label)  label.textContent    = '';
       if (invite) invite.style.display = '';
       break;
-
     case 'blocked':
-      toggleBtn.textContent  = '🔕 Blocked';
-      toggleBtn.className    = 'notif-btn blocked';
-      toggleBtn.disabled     = true;
-      if (label)  label.textContent = '';
+      toggleBtn.textContent = '🔕 Blocked'; toggleBtn.className = 'notif-btn blocked'; toggleBtn.disabled = true;
+      if (label)  label.textContent    = '';
       if (invite) invite.style.display = 'none';
       break;
-
     case 'loading':
-      toggleBtn.textContent  = '…';
-      toggleBtn.className    = 'notif-btn';
-      toggleBtn.disabled     = true;
+      toggleBtn.textContent = '…'; toggleBtn.className = 'notif-btn'; toggleBtn.disabled = true;
       break;
   }
 }
 
-// ─── Popup ───────────────────────────────────────────────────────────────────
-function showPopup() {
-  const popup = document.getElementById('notif-popup');
-  if (popup) popup.classList.add('visible');
-}
+function showPopup() { document.getElementById('notif-popup')?.classList.add('visible'); }
+function hidePopup() { document.getElementById('notif-popup')?.classList.remove('visible'); }
 
-function hidePopup() {
-  const popup = document.getElementById('notif-popup');
-  if (popup) popup.classList.remove('visible');
-}
-
-// ─── Subscribe ───────────────────────────────────────────────────────────────
+// ─── Subscribe — writes subscription directly to Firestore ───────────────────
 async function subscribe() {
   let browserSub = null;
   try {
     setUI('loading');
-    const publicKey = await getVapidPublicKey();
     browserSub = await swReg.pushManager.subscribe({
       userVisibleOnly:      true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+      applicationServerKey: urlBase64ToUint8Array(window.VAPID_PUBLIC_KEY),
     });
-
-    const res = await fetch(API_BASE + '/api/subscribe', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(browserSub),
-    });
-
-    if (!res.ok) {
-      // Server failed to save — roll back the browser-side subscription so the
-      // user isn't left in a state where the browser thinks they're subscribed
-      // but the server has no record of them (they'd never receive notifications).
-      await browserSub.unsubscribe();
-      throw new Error('Server failed to save subscription');
+    // Convert PushSubscription to plain object, then write to Firestore
+    const subJson   = JSON.parse(JSON.stringify(browserSub));
+    const existing  = await db.collection('subscriptions').where('endpoint', '==', subJson.endpoint).get();
+    if (existing.empty) {
+      await db.collection('subscriptions').add({ ...subJson, subscribedAt: new Date().toISOString() });
     }
-
     subscribed = true;
     setUI('subscribed');
   } catch (err) {
     console.error('[Push] subscribe failed:', err);
+    if (browserSub) await browserSub.unsubscribe().catch(() => {});
     setUI(Notification.permission === 'denied' ? 'blocked' : 'unsubscribed');
   }
 }
 
-// ─── Unsubscribe ─────────────────────────────────────────────────────────────
+// ─── Unsubscribe — deletes from Firestore ────────────────────────────────────
 async function unsubscribe() {
   try {
     const sub = await swReg.pushManager.getSubscription();
     if (sub) {
-      await fetch(API_BASE + '/api/unsubscribe', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ endpoint: sub.endpoint }),
-      });
+      const snapshot = await db.collection('subscriptions').where('endpoint', '==', sub.endpoint).get();
+      await Promise.all(snapshot.docs.map((d) => d.ref.delete()));
       await sub.unsubscribe();
     }
     subscribed = false;
@@ -305,55 +228,37 @@ async function unsubscribe() {
   }
 }
 
-// ─── Request permission then subscribe ───────────────────────────────────────
 async function requestAndSubscribe() {
   const perm = await Notification.requestPermission();
-  if (perm === 'granted') {
-    await subscribe();
-  } else {
-    setUI(perm === 'denied' ? 'blocked' : 'unsubscribed');
-  }
+  if (perm === 'granted') await subscribe();
+  else setUI(perm === 'denied' ? 'blocked' : 'unsubscribed');
 }
 
-// ─── Toggle (header button) ───────────────────────────────────────────────────
 async function onToggle() {
   if (!swReg) return;
-  if (subscribed) {
-    await unsubscribe();
-  } else {
-    await requestAndSubscribe();
-  }
+  if (subscribed) await unsubscribe();
+  else await requestAndSubscribe();
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
-  // SSE works for everyone — no permission needed
-  connectSSE();
-
+  connectRealtime();
   if (!pushSupported) {
     const btn = document.getElementById('notif-toggle-btn');
     if (btn) { btn.textContent = 'Not supported'; btn.disabled = true; }
     return;
   }
-
   try {
     swReg = await navigator.serviceWorker.register('./sw.js');
-    setupSWMessageListener(); // catch push events when tab is in foreground
-
+    setupSWMessageListener();
     const permission = Notification.permission;
-
-    if (permission === 'denied') {
-      setUI('blocked');
-      return;
-    }
-
+    if (permission === 'denied') { setUI('blocked'); return; }
     const existing = await swReg.pushManager.getSubscription();
     if (existing) {
       subscribed = true;
       setUI('subscribed');
     } else {
       setUI('unsubscribed');
-      // Show popup only once if browser hasn't been asked yet
       if (permission === 'default' && !localStorage.getItem('popup-dismissed')) {
         setTimeout(showPopup, 2500);
       }
@@ -365,60 +270,39 @@ async function init() {
   }
 }
 
-// ─── Wire up events after DOM ready ──────────────────────────────────────────
+// ─── DOM ready ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   init();
 
-  // Popup — Allow
   document.getElementById('popup-allow-btn')?.addEventListener('click', async () => {
-    hidePopup();
-    await requestAndSubscribe();
+    hidePopup(); await requestAndSubscribe();
   });
-
-  // Popup — Dismiss
   document.getElementById('popup-dismiss-btn')?.addEventListener('click', () => {
-    hidePopup();
-    localStorage.setItem('popup-dismissed', 'true');
+    hidePopup(); localStorage.setItem('popup-dismissed', 'true');
   });
-
-  // Header toggle button
   document.getElementById('notif-toggle-btn')?.addEventListener('click', onToggle);
-
-  // Banner subscribe button
   document.getElementById('banner-subscribe-btn')?.addEventListener('click', async () => {
     await requestAndSubscribe();
   });
-
-  // Bell icon → notification drawer
   document.getElementById('bell-btn')?.addEventListener('click', openDrawer);
-
-  // Drawer close button
   document.getElementById('drawer-close-btn')?.addEventListener('click', () => {
     document.getElementById('notif-drawer')?.classList.remove('drawer-open');
   });
-
-  // Close drawer when clicking outside
   document.addEventListener('click', (e) => {
     const drawer = document.getElementById('notif-drawer');
     if (!drawer?.classList.contains('drawer-open')) return;
-    if (!drawer.contains(e.target) && e.target.id !== 'bell-btn') {
-      drawer.classList.remove('drawer-open');
-    }
+    if (!drawer.contains(e.target) && e.target.id !== 'bell-btn') drawer.classList.remove('drawer-open');
   });
 
-  // Highlight active nav link based on ?category=
   const activeCategory = new URLSearchParams(window.location.search).get('category') || '';
   document.querySelectorAll('.main-nav a').forEach((link) => {
-    const linkCat = link.dataset.category || '';
-    link.classList.toggle('nav-active', linkCat === activeCategory);
+    link.classList.toggle('nav-active', (link.dataset.category || '') === activeCategory);
   });
-
-  // Load dynamic news articles
   loadArticles(activeCategory);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DYNAMIC NEWS ARTICLES
+// ARTICLES — reads directly from Firestore
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const CATEGORY_COLORS = {
@@ -433,9 +317,10 @@ const CATEGORY_COLORS = {
 
 async function loadArticles(category = '') {
   try {
-    const url      = category ? `${API_BASE}/api/articles?category=${encodeURIComponent(category)}` : API_BASE + '/api/articles';
-    const res      = await fetch(url);
-    const articles = await res.json();
+    let ref = db.collection('articles').orderBy('createdAt', 'desc');
+    if (category) ref = db.collection('articles').where('category', '==', category).orderBy('createdAt', 'desc');
+    const snapshot = await ref.get();
+    const articles  = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     const featuredSec    = document.getElementById('featured-section');
     const topStoriesList = document.getElementById('top-stories-list');
@@ -443,9 +328,8 @@ async function loadArticles(category = '') {
     const noArticles     = document.getElementById('no-articles');
     const newsGrid       = document.getElementById('news-grid');
 
-    // Update section headings when filtering by category
     if (category) {
-      const label = category.charAt(0).toUpperCase() + category.slice(1);
+      const label   = category.charAt(0).toUpperCase() + category.slice(1);
       const topHead = document.querySelector('#news-grid section:first-child .col-heading');
       const latHead = document.querySelector('#news-grid section:last-child .col-heading');
       if (topHead) topHead.textContent = `${label} Stories`;
@@ -454,20 +338,16 @@ async function loadArticles(category = '') {
 
     if (!articles.length) {
       if (featuredSec) featuredSec.style.display = 'none';
-      if (newsGrid)    newsGrid.style.display    = 'none';
-      if (noArticles)  noArticles.style.display  = '';
+      if (newsGrid)    newsGrid.style.display     = 'none';
+      if (noArticles)  noArticles.style.display   = '';
       return;
     }
 
     if (noArticles) noArticles.style.display = 'none';
 
-    // ── Featured article ──────────────────────────────────────────────────────
     const featured = articles.find((a) => a.featured) || articles[0];
-    if (featuredSec) {
-      featuredSec.innerHTML = buildFeaturedCard(featured);
-    }
+    if (featuredSec) featuredSec.innerHTML = buildFeaturedCard(featured);
 
-    // ── Top Stories (non-featured articles, up to 4) ──────────────────────────
     const rest       = articles.filter((a) => a.id !== featured.id);
     const topStories = rest.slice(0, 4);
     const latest     = rest.slice(4, 10);
@@ -477,8 +357,6 @@ async function loadArticles(category = '') {
         ? topStories.map(buildTopCard).join('')
         : '<p class="empty-col">No more stories yet.</p>';
     }
-
-    // ── Latest Updates (row cards) ────────────────────────────────────────────
     if (latestList) {
       latestList.innerHTML = latest.length
         ? latest.map(buildLatestCard).join('')
@@ -489,20 +367,13 @@ async function loadArticles(category = '') {
   }
 }
 
-function tagClass(category) {
-  return `tag tag-${(category || 'world').toLowerCase()}`;
-}
-
-function categoryColor(article) {
-  return article.imageColor || CATEGORY_COLORS[(article.category || '').toLowerCase()] || CATEGORY_COLORS.world;
-}
+function tagClass(category) { return `tag tag-${(category || 'world').toLowerCase()}`; }
+function categoryColor(a) { return a.imageColor || CATEGORY_COLORS[(a.category || '').toLowerCase()] || CATEGORY_COLORS.world; }
 
 function buildFeaturedCard(a) {
   return `
     <div class="featured-card">
-      <div class="featured-img" style="background:${categoryColor(a)}" aria-hidden="true">
-        ${esc(a.imageEmoji || '📰')}
-      </div>
+      <div class="featured-img" style="background:${categoryColor(a)}" aria-hidden="true">${esc(a.imageEmoji || '📰')}</div>
       <div class="featured-body">
         <span class="${tagClass(a.category)}">${esc(a.category)}</span>
         <h1 class="featured-title">${esc(a.title)}</h1>
@@ -526,10 +397,7 @@ function buildTopCard(a) {
         <span class="${tagClass(a.category)}">${esc(a.category)}</span>
         <h3>${esc(a.title)}</h3>
         <p>${esc(a.excerpt)}</p>
-        <div class="meta">
-          <span>${esc(a.author)}</span>
-          <span>${relativeTime(a.createdAt)}</span>
-        </div>
+        <div class="meta"><span>${esc(a.author)}</span><span>${relativeTime(a.createdAt)}</span></div>
       </div>
     </article>`;
 }
@@ -547,8 +415,3 @@ function buildLatestCard(a) {
       </div>
     </article>`;
 }
-
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
-}
-
