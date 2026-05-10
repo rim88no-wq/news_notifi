@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NewsFlash — Breaking News & Live Updates</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+  <!-- ═══ IN-PAGE TOAST CONTAINER ══════════════════════════════════════════ -->
+  <div id="toast-container" aria-live="polite" aria-label="Notifications"></div>
+
+  <!-- ═══ PUSH NOTIFICATION PERMISSION POPUP ═══════════════════════════════ -->
+  <div id="notif-popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="popup-heading">
+    <div class="popup-card">
+      <div class="popup-icon" aria-hidden="true">🔔</div>
+      <h2 id="popup-heading">Stay Ahead of the News</h2>
+      <p>Get instant browser alerts for breaking stories, live updates, and top headlines — no app needed.</p>
+      <div class="popup-actions">
+        <button id="popup-allow-btn" class="btn btn-primary">Allow Notifications</button>
+        <button id="popup-dismiss-btn" class="btn btn-ghost">Maybe Later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ HEADER ════════════════════════════════════════════════════════════ -->
+  <header class="site-header">
+    <div class="container">
+      <div class="header-inner">
+        <a href="/" class="logo" aria-label="NewsFlash home">
+          <span aria-hidden="true">📰</span>
+          <span class="logo-text">NewsFlash</span>
+        </a>
+
+        <nav class="main-nav" aria-label="Site sections">
+          <a href="/" data-category="">Home</a>
+          <a href="/?category=world" data-category="world">World</a>
+          <a href="/?category=politics" data-category="politics">Politics</a>
+          <a href="/?category=tech" data-category="tech">Tech</a>
+          <a href="/?category=sports" data-category="sports">Sports</a>
+          <a href="/?category=health" data-category="health">Health</a>
+        </nav>
+
+        <div class="notif-bar" id="notif-bar">
+          <span class="notif-label" id="notif-label"></span>
+          <button id="notif-toggle-btn" class="notif-btn" aria-live="polite">Loading…</button>
+
+          <!-- Bell icon with unread badge + drawer -->
+          <div class="bell-wrap">
+            <button id="bell-btn" class="bell-btn" aria-label="View notifications">
+              🔔
+              <span id="bell-badge" class="bell-badge" style="display:none"></span>
+            </button>
+            <div id="notif-drawer" class="notif-drawer" aria-label="Notifications panel">
+              <div class="drawer-header">
+                <span>Notifications</span>
+                <button class="drawer-close-btn" id="drawer-close-btn" aria-label="Close">✕</button>
+              </div>
+              <div id="drawer-list" class="drawer-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══ BREAKING TICKER ═══════════════════════════════════════════════════ -->
+  <div class="ticker-bar" aria-label="Breaking news">
+    <div class="container">
+      <span class="ticker-badge">BREAKING</span>
+      <div class="ticker-track" aria-hidden="true">
+        <div class="ticker-text">
+          Markets reach record highs amid economic optimism &nbsp;·&nbsp;
+          Tech giants announce major AI partnership &nbsp;·&nbsp;
+          Climate summit begins in Geneva &nbsp;·&nbsp;
+          Scientists discover breakthrough in renewable energy &nbsp;·&nbsp;
+          Champions League quarter-finals produce record attendance &nbsp;·&nbsp;
+          WHO approves malaria vaccine with 90 % efficacy &nbsp;·&nbsp;
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN CONTENT ══════════════════════════════════════════════════════ -->
+  <main class="page-body">
+    <div class="container">
+
+      <!-- Featured story (rendered by app.js) -->
+      <section class="featured" id="featured-section">
+        <!-- skeleton -->
+        <div class="featured-card skeleton-card">
+          <div class="featured-img skeleton-block"></div>
+          <div class="featured-body">
+            <div class="skeleton-line sk-tag"></div>
+            <div class="skeleton-line sk-title"></div>
+            <div class="skeleton-line sk-text"></div>
+            <div class="skeleton-line sk-text sk-short"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Two-column grid (rendered by app.js) -->
+      <div class="news-grid" id="news-grid">
+        <!-- Left — Top Stories -->
+        <section>
+          <h2 class="col-heading">Top Stories</h2>
+          <div id="top-stories-list">
+            <div class="news-card skeleton-card">
+              <div class="card-img skeleton-block"></div>
+              <div class="card-body">
+                <div class="skeleton-line sk-tag"></div>
+                <div class="skeleton-line sk-h3"></div>
+                <div class="skeleton-line sk-text"></div>
+              </div>
+            </div>
+            <div class="news-card skeleton-card">
+              <div class="card-img skeleton-block"></div>
+              <div class="card-body">
+                <div class="skeleton-line sk-tag"></div>
+                <div class="skeleton-line sk-h3"></div>
+                <div class="skeleton-line sk-text"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right — Latest Updates -->
+        <section>
+          <h2 class="col-heading">Latest Updates</h2>
+          <div id="latest-list">
+            <div class="news-card news-card--row skeleton-card">
+              <div class="card-img-sm skeleton-block"></div>
+              <div class="card-body">
+                <div class="skeleton-line sk-tag"></div>
+                <div class="skeleton-line sk-h3"></div>
+              </div>
+            </div>
+            <div class="news-card news-card--row skeleton-card">
+              <div class="card-img-sm skeleton-block"></div>
+              <div class="card-body">
+                <div class="skeleton-line sk-tag"></div>
+                <div class="skeleton-line sk-h3"></div>
+              </div>
+            </div>
+            <div class="news-card news-card--row skeleton-card">
+              <div class="card-img-sm skeleton-block"></div>
+              <div class="card-body">
+                <div class="skeleton-line sk-tag"></div>
+                <div class="skeleton-line sk-h3"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div><!-- /news-grid -->
+
+      <!-- Empty state — shown when there are no articles yet -->
+      <div id="no-articles" class="no-articles-msg" style="display:none">
+        <span class="na-icon" aria-hidden="true">📭</span>
+        <h2>No articles yet</h2>
+        <p>Head to the <a href="/admin.html">admin panel</a> to publish your first story.</p>
+      </div>
+
+      <!-- Notification invite banner (hidden once subscribed) -->
+      <div class="notif-invite" id="notif-invite">
+        <div class="notif-invite-copy">
+          <span aria-hidden="true">🔔</span>
+          <div>
+            <strong>Never miss a breaking story</strong>
+            <span>Enable push notifications for instant alerts.</span>
+          </div>
+        </div>
+        <button id="banner-subscribe-btn" class="btn btn-primary">Enable Alerts</button>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ═══ FOOTER ════════════════════════════════════════════════════════════ -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="logo">
+            <span aria-hidden="true">📰</span>
+            <span class="logo-text">NewsFlash</span>
+          </div>
+          <p>Your trusted source for breaking news and in-depth reporting from around the world.</p>
+        </div>
+        <div>
+          <h4>Sections</h4>
+          <ul><li><a href="#">World</a></li><li><a href="#">Politics</a></li>
+          <li><a href="#">Technology</a></li><li><a href="#">Sports</a></li>
+          <li><a href="#">Health</a></li></ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul><li><a href="#">About Us</a></li><li><a href="#">Contact</a></li>
+          <li><a href="#">Privacy Policy</a></li><li><a href="/admin.html">Admin Panel</a></li></ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2026 NewsFlash. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
