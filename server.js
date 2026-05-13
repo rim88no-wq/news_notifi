@@ -245,8 +245,9 @@ app.post('/api/notifications', adminAuth, async (req, res) => {
         notification.sentCount++;
       } else {
         notification.failedCount++;
-        // 410 Gone / 404 = subscription expired, clean it up
         const code = result.reason?.statusCode;
+        console.error(`[Push] send failed for sub ${subs[i]._id}: HTTP ${code} — ${result.reason?.body || result.reason?.message}`);
+        // 410 Gone / 404 = subscription expired, clean it up
         if (code === 410 || code === 404) {
           invalidDocIds.push(subs[i]._id);
         }

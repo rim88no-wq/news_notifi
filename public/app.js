@@ -1,8 +1,9 @@
 'use strict';
 
-let swReg       = null;
-let subscribed  = false;
-let unreadCount = 0;
+let swReg         = null;
+let subscribed    = false;
+let unreadCount   = 0;
+let vapidPublicKey = window.VAPID_PUBLIC_KEY || null; // overwritten by fetchVapidKey()
 const SEEN_KEY      = 'nf-last-seen-id';
 const seenNotifIds  = new Set();
 
@@ -188,14 +189,29 @@ function setUI(state) {
 function showPopup() { document.getElementById('notif-popup')?.classList.add('visible'); }
 function hidePopup() { document.getElementById('notif-popup')?.classList.remove('visible'); }
 
+// ─── Fetch VAPID key from server so it always matches the server's private key ─
+async function fetchVapidKey() {
+  try {
+    const res = await fetch(window.API_BASE + '/api/vapid-public-key');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const { publicKey } = await res.json();
+    if (publicKey) vapidPublicKey = publicKey;
+  } catch (err) {
+    console.warn('[Push] could not fetch VAPID key from server, falling back to config.js value:', err);
+  }
+}
+
 // ─── Subscribe — saves via Railway (Admin SDK bypasses Firestore rules) ───────
 async function subscribe() {
   let browserSub = null;
   try {
     setUI('loading');
+    if (!vapidPublicKey) {
+      throw new Error('VAPID public key not available');
+    }
     browserSub = await swReg.pushManager.subscribe({
       userVisibleOnly:      true,
-      applicationServerKey: urlBase64ToUint8Array(window.VAPID_PUBLIC_KEY),
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
     });
     const res = await fetch(window.API_BASE + '/api/subscribe', {
       method:  'POST',
@@ -305,6 +321,9 @@ async function init() {
     if (btn) { btn.textContent = 'Not supported'; btn.disabled = true; }
     return;
   }
+  // Fetch the actual VAPID key the server is using so subscriptions don't
+  // silently break when the server key differs from the config.js fallback.
+  await fetchVapidKey();
   try {
     swReg = await navigator.serviceWorker.register('./sw.js');
     setupSWMessageListener();
