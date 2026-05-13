@@ -98,15 +98,37 @@ app.post('/api/subscribe', async (req, res) => {
   try {
     const q        = query(collection(db, 'subscriptions'), where('endpoint', '==', subscription.endpoint));
     const existing = await getDocs(q);
-    if (existing.empty) {
+    const isNew    = existing.empty;
+    if (isNew) {
       await addDoc(collection(db, 'subscriptions'), { ...subscription, subscribedAt: new Date().toISOString() });
     }
     res.json({ success: true });
+    // Fire-and-forget: replay all saved notifications to a brand-new subscriber
+    if (isNew) replayNotificationsTo(subscription).catch(() => {});
   } catch (err) {
     console.error('Subscribe error:', err);
     res.status(500).json({ error: 'Failed to subscribe' });
   }
 });
+
+// Sends every saved notification to a single subscriber, oldest-first, 1 s apart
+async function replayNotificationsTo(subscription) {
+  const snapshot = await getDocs(
+    query(collection(db, 'notifications'), orderBy('createdAt', 'asc'))
+  );
+  for (const docSnap of snapshot.docs) {
+    const n = { id: docSnap.id, ...docSnap.data() };
+    const payload = JSON.stringify({ title: n.title, body: n.body, url: n.url, id: n.id });
+    try {
+      await webpush.sendNotification(subscription, payload);
+    } catch (err) {
+      // Subscription already gone — stop early
+      if (err.statusCode === 410 || err.statusCode === 404) break;
+      console.error('[Replay] send failed:', err.statusCode, err.body);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
 
 // Unsubscribe
 app.post('/api/unsubscribe', async (req, res) => {
