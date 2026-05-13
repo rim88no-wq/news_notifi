@@ -191,13 +191,17 @@ function hidePopup() { document.getElementById('notif-popup')?.classList.remove(
 
 // ─── Fetch VAPID key from server so it always matches the server's private key ─
 async function fetchVapidKey() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
-    const res = await fetch(window.API_BASE + '/api/vapid-public-key');
+    const res = await fetch(window.API_BASE + '/api/vapid-public-key', { signal: controller.signal });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const { publicKey } = await res.json();
     if (publicKey) vapidPublicKey = publicKey;
   } catch (err) {
     console.warn('[Push] could not fetch VAPID key from server, falling back to config.js value:', err);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -236,12 +240,15 @@ async function unsubscribe() {
   try {
     const sub = await swReg.pushManager.getSubscription();
     if (sub) {
-      await fetch(window.API_BASE + '/api/unsubscribe', {
+      // Unsubscribe browser-side first — server cleanup is best-effort.
+      // If server call throws, the browser is still unsubscribed and the
+      // stale endpoint gets cleaned up automatically on the next send (410).
+      await sub.unsubscribe();
+      fetch(window.API_BASE + '/api/unsubscribe', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ endpoint: sub.endpoint }),
-      });
-      await sub.unsubscribe();
+      }).catch(() => {});
     }
     subscribed = false;
     setUI('unsubscribed');
